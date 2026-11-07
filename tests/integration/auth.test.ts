@@ -75,9 +75,29 @@ describe("auth", () => {
 
       assert.equal(response.status, 400);
       const body = response.body as { message: string; errors: string[] };
-      assert.equal(body.message, "Validation failed");
+      // `message` repeats the first concrete problem so the UI can show it.
+      assert.match(body.message, /^Email |^Username /);
       assert.ok(body.errors.some((error) => error.startsWith("email:")));
       assert.ok(body.errors.some((error) => error.startsWith("username:")));
+    });
+
+    it("names the password minimum length when the password is too short", async () => {
+      const response = await api.post("/auth/register", {
+        email: uniqueEmail("pwshort"),
+        password: "123",
+        username: "Short",
+      });
+
+      assert.equal(response.status, 400);
+      const body = response.body as { message: string; errors: string[] };
+
+      // Human-readable at the top level (this is what the frontend displays)...
+      assert.match(body.message, /password/i);
+      assert.match(body.message, /too short/i);
+      assert.match(body.message, /6/);
+
+      // ...and machine-readable in `errors`.
+      assert.ok(body.errors.some((error) => error.startsWith("password:")));
     });
 
     it("rejects a malformed email with 400", async () => {

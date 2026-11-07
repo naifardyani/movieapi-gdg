@@ -105,7 +105,8 @@ describe("validateBody", () => {
 
     assert.equal(outcome.status, 400);
     const body = outcome.body as { message: string; errors: string[] };
-    assert.equal(body.message, "Validation failed");
+    // Top-level message is the first concrete problem, not a generic string.
+    assert.match(body.message, /^Email /);
     assert.equal(body.errors.length, 2);
     assert.ok(body.errors.some((error) => error.startsWith("email:")));
     assert.ok(body.errors.some((error) => error.startsWith("password:")));

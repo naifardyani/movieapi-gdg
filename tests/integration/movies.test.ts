@@ -142,7 +142,7 @@ describe("movies", () => {
       const response = await api.post("/movies/recommend", { prompt: "x" });
 
       assert.equal(response.status, 400);
-      assert.equal((response.body as { message: string }).message, "Validation failed");
+      assert.match((response.body as { message: string }).message, /prompt/i);
     });
 
     it("returns 400 when the prompt is too long", async () => {

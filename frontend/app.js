@@ -70,7 +70,14 @@ async function apiFetch(endpoint, options = {}) {
       const errorMsg = (typeof responseData === 'object' && (responseData.message || responseData.error))
         ? (responseData.message || responseData.error)
         : `Request failed with status ${status}`;
-      throw new Error(errorMsg);
+
+      // Attach the full field-level list so forms can show every problem, not
+      // just the first one. `message` stays human-readable for toasts.
+      const error = new Error(errorMsg);
+      if (typeof responseData === 'object' && Array.isArray(responseData.errors)) {
+        error.errors = responseData.errors;
+      }
+      throw error;
     }
 
     return responseData;
@@ -138,11 +145,50 @@ document.addEventListener('DOMContentLoaded', () => {
   updateApiUrlDisplay();
   renderAuthUI();
   loadDiscoverMovies();
+
+  // Live password-length feedback on the register form (mirrors the API rule).
+  const passwordInput = document.getElementById('auth-password');
+  if (passwordInput) {
+    passwordInput.addEventListener('input', () => {
+      if (state.authMode === 'register') updatePasswordHint();
+    });
+  }
+
   if (state.token) {
     loadWatchlist();
     loadWatchedList();
   }
 });
+
+const PASSWORD_MIN_LENGTH = 6;
+
+/** Shows an inline hint under the password field while registering. */
+function updatePasswordHint() {
+  const hint = document.getElementById('auth-password-hint');
+  const input = document.getElementById('auth-password');
+  if (!hint || !input) return;
+
+  if (state.authMode !== 'register' || input.value.length === 0) {
+    hidePasswordHint();
+    return;
+  }
+
+  if (input.value.length < PASSWORD_MIN_LENGTH) {
+    const needed = PASSWORD_MIN_LENGTH - input.value.length;
+    hint.textContent = `Password is too short — ${needed} more character${needed === 1 ? '' : 's'} needed (minimum ${PASSWORD_MIN_LENGTH}).`;
+    hint.className = 'text-[11px] text-amber-400';
+  } else {
+    hint.textContent = 'Password length looks good.';
+    hint.className = 'text-[11px] text-emerald-400';
+  }
+}
+
+function hidePasswordHint() {
+  const hint = document.getElementById('auth-password-hint');
+  if (!hint) return;
+  hint.textContent = '';
+  hint.className = 'text-[11px] text-brand-muted hidden';
+}
 
 function updateApiUrlDisplay() {
   const display = document.getElementById('api-url-display');
@@ -867,11 +913,15 @@ function setAuthMode(mode) {
     submitBtn.textContent = 'Create Account';
     tabRegister.className = 'font-bold text-lg text-white border-b-2 border-brand-green pb-1';
     tabLogin.className = 'font-medium text-lg text-brand-muted hover:text-white pb-1';
+    // No native `minlength` here: the inline hint below the field gives a
+    // clearer, consistently styled warning with the exact number missing.
+    updatePasswordHint();
   } else {
     usernameField.classList.add('hidden');
     submitBtn.textContent = 'Sign In';
     tabLogin.className = 'font-bold text-lg text-white border-b-2 border-brand-green pb-1';
     tabRegister.className = 'font-medium text-lg text-brand-muted hover:text-white pb-1';
+    hidePasswordHint();
   }
 }
 
@@ -884,6 +934,19 @@ async function handleAuthSubmit(event) {
   const submitBtn = document.getElementById('auth-submit-btn');
 
   errorEl.classList.add('hidden');
+
+  // Mirror the API rule before hitting the network, so a too-short password is
+  // flagged instantly (with the exact shortfall) instead of after a round trip.
+  if (state.authMode === 'register' && password.length < PASSWORD_MIN_LENGTH) {
+    const needed = PASSWORD_MIN_LENGTH - password.length;
+    errorEl.textContent =
+      `Password is too short (at least ${PASSWORD_MIN_LENGTH} characters). ` +
+      `Add ${needed} more character${needed === 1 ? '' : 's'}.`;
+    errorEl.classList.remove('hidden');
+    document.getElementById('auth-password').focus();
+    return;
+  }
+
   submitBtn.disabled = true;
   submitBtn.textContent = 'Processing...';
 
@@ -918,7 +981,26 @@ async function handleAuthSubmit(event) {
       setAuthMode('login');
     }
   } catch (err) {
-    errorEl.textContent = err.message;
+    // Show every field-level complaint so the user can fix them all at once.
+    // Entries look like "password: is too short (at least 6 characters)".
+    const details = Array.isArray(err.errors) && err.errors.length > 0
+      ? err.errors
+      : [err.message];
+
+    errorEl.innerHTML = '';
+    for (const detail of details) {
+      const line = document.createElement('p');
+      const text = String(detail);
+      const separator = text.indexOf(': ');
+      const label = separator === -1
+        ? null
+        : text.slice(0, separator).replace(/([a-z0-9])([A-Z])/g, '$1 $2');
+
+      line.textContent = label === null
+        ? text
+        : `${label.charAt(0).toUpperCase()}${label.slice(1)}${text.slice(separator + 1)}`;
+      errorEl.appendChild(line);
+    }
     errorEl.classList.remove('hidden');
   } finally {
     submitBtn.disabled = false;

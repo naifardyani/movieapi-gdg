@@ -32,8 +32,12 @@ describe("isString", () => {
 
   it("rejects non-strings", () => {
     assert.deepEqual(errorList(isString()(42)), ["must be a string"]);
-    assert.deepEqual(errorList(isString()(null)), ["must be a string"]);
     assert.deepEqual(errorList(isString()({})), ["must be a string"]);
+  });
+
+  it("says a field is required when it is absent", () => {
+    assert.deepEqual(errorList(isString()(undefined)), ["is required"]);
+    assert.deepEqual(errorList(isString()(null)), ["is required"]);
   });
 
   it("enforces the length bounds", () => {
@@ -41,6 +45,12 @@ describe("isString", () => {
     assert.equal(errorList(isString(3, 5)("ab")).length, 1);
     assert.equal(errorList(isString(3, 5)("abcdef")).length, 1);
     assert.equal(okValue(isString(3, 5)("abcd")), "abcd");
+  });
+
+  it("explains whether the value is too short or too long", () => {
+    assert.match(errorList(isString(3, 5)("ab"))[0] ?? "", /too short/i);
+    assert.match(errorList(isString(3, 5)("abcdef"))[0] ?? "", /too long/i);
+    assert.equal(errorList(isString(1, 5)("   "))[0], "must not be empty");
   });
 });
 
@@ -85,6 +95,13 @@ describe("isPassword", () => {
     assert.equal(errorList(isPassword("x".repeat(129))).length, 1);
   });
 
+  it("says the password is too short (or too long) in plain words", () => {
+    assert.match(errorList(isPassword("12345"))[0] ?? "", /too short/i);
+    assert.match(errorList(isPassword("12345"))[0] ?? "", /6/);
+    assert.match(errorList(isPassword("x".repeat(129)))[0] ?? "", /too long/i);
+    assert.match(errorList(isPassword("x".repeat(129)))[0] ?? "", /128/);
+  });
+
   it("does not trim passwords", () => {
     assert.equal(okValue(isPassword("  secret  ")), "  secret  ");
   });
@@ -111,6 +128,11 @@ describe("isInt", () => {
 
   it("rejects booleans even though Number(true) is 1", () => {
     assert.equal(errorList(isInt(1)(true)).length, 1);
+  });
+
+  it("says a value is required when it is absent", () => {
+    assert.deepEqual(errorList(isInt(1)(undefined)), ["is required"]);
+    assert.deepEqual(errorList(isInt(1)(null)), ["is required"]);
   });
 });
 
