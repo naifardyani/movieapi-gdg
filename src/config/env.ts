@@ -24,7 +24,7 @@ export const env = {
   JWT_SECRET: required("JWT_SECRET"),
   JWT_EXPIRES_IN: optional("JWT_EXPIRES_IN", "7d"),
   GEMINI_API_KEY: required("GEMINI_API_KEY"),
-  GEMINI_MODEL: optional("GEMINI_MODEL", "gemini-3.8-flash"),
+  GEMINI_MODEL: optional("GEMINI_MODEL", "gemini-3.5-flash-lite"),
 } as const;
 
 export const isProduction = env.NODE_ENV === "production";

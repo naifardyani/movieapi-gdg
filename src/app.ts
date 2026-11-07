@@ -10,8 +10,7 @@ import apiRoutes from "./routes/index.js";
 
 export const app = express();
 
-// The frontend companion is served from a different origin (or file://),
-// so permissive CORS is required for the assignment workflow.
+// CORS
 app.use(cors());
 app.use(express.json({ limit: "100kb" }));
 
