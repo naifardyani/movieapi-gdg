@@ -4,5 +4,8 @@ Thumbs.db
 .env
 .env.local
 node_modules
+dist
+.agents/
+.claude/
 
 /generated/prisma
