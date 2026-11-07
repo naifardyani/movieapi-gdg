@@ -1,0 +1,63 @@
+generator client {
+  provider = "prisma-client-js"
+}
+
+datasource db {
+  provider = "postgresql"
+  // url = env("DATABASE_URL") ---> REMOVED FOR PRISMA V7 COMPATIBILITY
+}
+
+model User {
+  id        String      @id @default(uuid())
+  username  String
+  email     String      @unique
+  password  String
+  createdAt DateTime    @default(now())
+  watchlist Watchlist[]
+  reviews   Review[]
+}
+
+// Field names mirror data/movies.json and the keys consumed by frontend/app.js
+// (year, director, rating, duration, synopsis, poster_url, cast).
+model Movie {
+  id         Int      @id
+  title      String
+  year       Int
+  director   String
+  genres     String[]
+  rating     Float
+  duration   String
+  synopsis   String
+  poster_url String
+  cast       String[]
+  createdAt  DateTime @default(now())
+
+  watchlist Watchlist[]
+  reviews   Review[]
+}
+
+model Watchlist {
+  id        String   @id @default(uuid())
+  userId    String
+  movieId   Int
+  createdAt DateTime @default(now())
+
+  user  User  @relation(fields: [userId], references: [id], onDelete: Cascade)
+  movie Movie @relation(fields: [movieId], references: [id], onDelete: Cascade)
+
+  @@unique([userId, movieId])
+}
+
+model Review {
+  id        String   @id @default(uuid())
+  userId    String
+  movieId   Int
+  rating    Int      // 1-5 star rating
+  review    String   // Written opinion (frontend sends `review`)
+  createdAt DateTime @default(now())
+
+  user  User  @relation(fields: [userId], references: [id], onDelete: Cascade)
+  movie Movie @relation(fields: [movieId], references: [id], onDelete: Cascade)
+
+  @@unique([userId, movieId]) // Prevents a user from reviewing the same movie twice
+}
