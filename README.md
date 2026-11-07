@@ -78,6 +78,66 @@ Agar sistem dapat terhubung secara lancar dengan frontend companion yang disedia
 
 ---
 
+## 🚀 Menjalankan Proyek
+
+```bash
+npm install
+cp .env.example .env     # isi DATABASE_URL, JWT_SECRET, GEMINI_API_KEY
+
+npm run db:push          # sinkronkan schema Prisma
+npm run db:seed          # masukkan 20 film dari data/movies.json
+
+npm run dev              # http://localhost:8000/api
+```
+
+Perintah lain:
+
+| Perintah | Fungsi |
+|---|---|
+| `npm run build` | Kompilasi TypeScript ke `dist/` |
+| `npm start` | Jalankan hasil build (`dist/server.js`) |
+| `npm run typecheck` | Typecheck `src/`, `prisma/seed.ts`, dan `tests/` |
+| `npm run db:seed` | Idempoten (upsert), aman dijalankan berulang |
+
+---
+
+## 🧪 Pengujian Otomatis
+
+```bash
+npm test           # seluruh suite (unit + integration)
+npm run test:unit  # hanya unit test (tidak menyentuh database)
+```
+
+`npm test` menjalankan `scripts/run-tests.mjs`, yang:
+
+1. membuat ulang database **khusus test** `<nama_db>_test` (default `watchlist_test`) —
+   database development tidak pernah disentuh;
+2. menerapkan schema dengan `prisma db push` dan menjalankan seed asli;
+3. menjalankan `node:test` lewat `tsx` (tanpa dependency tambahan).
+
+Yang diuji: validator, pemetaan error → status code, autentikasi/JWT, isolasi data
+antar user, watchlist, review, dan matriks status code.
+
+---
+
+## 📊 Matriks Status Code
+
+| Status | Kapan dipakai |
+|---|---|
+| `200` | Login, daftar/detail film, daftar watchlist & watched |
+| `201` | Register, tambah watchlist, tambah/update review |
+| `204` | Hapus watchlist / review berhasil |
+| `400` | Body/query/param tidak valid, JSON rusak, ID bukan angka/UUID |
+| `401` | Token tidak ada/kadaluarsa/invalid, kredensial salah |
+| `403` | Terautentikasi tetapi bukan pemilik resource |
+| `404` | Film / watchlist / review tidak ditemukan |
+| `409` | Email sudah dipakai, film sudah ada di watchlist |
+| `413` | Body melebihi batas 100kb |
+| `422` | AI memilih film di luar katalog (input valid, tidak dapat diproses) |
+| `502`/`503` | Kegagalan layanan AI (termasuk rate limit) / database tidak tersedia |
+
+---
+
 ## 💡 Prinsip Backend yang Dinilai
 1. **Database Modeling:** Relasi yang rapi antar tabel (`users`, `movies`, `watchlists`, `reviews`).
 2. **Access Control & Security:** Password di-hash (bcrypt/argon2), rute privat terlindungi token JWT, user tidak dapat memodifikasi data user lain.

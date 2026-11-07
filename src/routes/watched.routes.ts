@@ -1,6 +1,6 @@
 import { Router } from "express";
 import * as watchedController from "../controllers/watched.controller.js";
-import { isInt, isText, validateBody } from "../middlewares/validate.middleware.js";
+import { isInt, isText, isUuid, validateBody, validateParams } from "../middlewares/validate.middleware.js";
 
 const router = Router();
 
@@ -18,6 +18,15 @@ router.post(
     { movieId: ["movie_id"], review: ["opinion"] },
   ),
   watchedController.record,
+);
+
+// Ownership-checked delete: 404 if unknown, 403 if it belongs to someone else.
+router.delete(
+  "/:id",
+  validateParams({
+    id: isUuid,
+  }),
+  watchedController.remove,
 );
 
 export default router;

@@ -84,6 +84,20 @@ export const optional =
     return validator(input);
   };
 
+const UUID_PATTERN = /^[0-9a-f]{8}-[0-9a-f]{4}-[1-5][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i;
+
+/** Prisma `@default(uuid())` ids. Rejects junk before it reaches the database. */
+export const isUuid: Validator<string> = (input) => {
+  if (typeof input !== "string") {
+    return { ok: false, errors: ["must be a string"] };
+  }
+  const value = input.trim();
+  if (!UUID_PATTERN.test(value)) {
+    return { ok: false, errors: ["must be a valid UUID"] };
+  }
+  return { ok: true, value };
+};
+
 /* -------------------------------------------------------------------------- */
 /*                                  Middleware                                */
 /* -------------------------------------------------------------------------- */
@@ -148,7 +162,10 @@ function validate(
     const result = runShape(shape, req[target], aliases);
 
     if (!result.ok) {
-      res.status(422).json({
+      // 400: the client sent a payload that fails validation. (422 is reserved
+      // for well-formed requests that the server cannot process semantically,
+      // e.g. the AI naming a movie outside the catalogue.)
+      res.status(400).json({
         message: "Validation failed",
         errors: result.errors,
       });
