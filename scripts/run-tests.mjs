@@ -19,9 +19,22 @@ import pg from "pg";
 
 const TEST_DATABASE = "watchlist_test";
 
-const configured = process.env["DATABASE_URL"];
+/**
+ * The suite runs against a *local* throwaway database, never Supabase.
+ *
+ * `TEST_DATABASE_URL` wins when set. Otherwise we derive a `*_test` database
+ * from `DATABASE_URL` — which, since development points at Supabase, would be
+ * a remote host. The localhost guard below is what makes that safe: this script
+ * drops and recreates its target database, and doing that to a cloud project
+ * would be unrecoverable.
+ */
+const configured = process.env["TEST_DATABASE_URL"]?.trim() || process.env["DATABASE_URL"];
+
 if (configured === undefined || configured.trim() === "") {
-  console.error("[tests] DATABASE_URL is not set. Copy .env.example to .env first.");
+  console.error(
+    "[tests] Neither TEST_DATABASE_URL nor DATABASE_URL is set. " +
+      "Copy .env.example to .env and point TEST_DATABASE_URL at a local Postgres.",
+  );
   process.exit(1);
 }
 
@@ -29,6 +42,8 @@ if (process.env["NODE_ENV"] === "production") {
   console.error("[tests] Refusing to run: NODE_ENV=production.");
   process.exit(1);
 }
+
+const LOCAL_HOSTS = new Set(["localhost", "127.0.0.1", "::1", "0.0.0.0"]);
 
 /** Swaps the database name in a PostgreSQL connection URL. */
 function withDatabase(connectionString, database) {
@@ -42,6 +57,15 @@ const target = new URL(testUrl);
 
 if (!target.pathname.endsWith("_test")) {
   console.error(`[tests] Refusing to run against non-test database: ${target.pathname}`);
+  process.exit(1);
+}
+
+if (!LOCAL_HOSTS.has(target.hostname)) {
+  console.error(
+    `[tests] Refusing to run against non-local host: ${target.hostname}\n` +
+      "[tests] This script drops and recreates its database, so it only runs on\n" +
+      "[tests] localhost. Set TEST_DATABASE_URL to a local Postgres instance.",
+  );
   process.exit(1);
 }
 

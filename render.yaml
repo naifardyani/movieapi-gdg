@@ -1,0 +1,48 @@
+# Render Blueprint for FilmLog.
+#
+# Deploy with: Render Dashboard -> New + -> Blueprint -> pick this repo.
+# Render reads this file and creates both services, then prompts for the
+# secrets marked `sync: false`.
+#
+# The database is NOT defined here: it lives on Supabase (session pooler).
+# See docs/DEPLOY-RENDER.md.
+services:
+  # ---------------------------------------------------------------- API
+  - type: web
+    name: filmlog-api
+    runtime: node
+    region: singapore
+    plan: free
+    branch: main
+    buildCommand: npm ci --include=dev && npm run build
+    startCommand: npm start
+    healthCheckPath: /api/health
+    autoDeployTrigger: commit
+    envVars:
+      # Supabase session pooler string. Prompted for on first create.
+      # Must end with: ?sslmode=require&uselibpqcompat=true
+      - key: DATABASE_URL
+        sync: false
+      # Render generates a 256-bit value on creation.
+      - key: JWT_SECRET
+        generateValue: true
+      - key: GEMINI_API_KEY
+        sync: false
+      - key: NODE_ENV
+        value: production
+      # Supavisor caps connections per role; keep the pool small.
+      - key: DB_POOL_MAX
+        value: "5"
+      # Optional override; the code default is gemini-3.5-flash-lite.
+      - key: GEMINI_MODEL
+        value: gemini-3.5-flash-lite
+
+  # ------------------------------------------------------------ Frontend
+  - type: web
+    name: filmlog-web
+    runtime: static
+    branch: main
+    rootDir: frontend
+    buildCommand: ""
+    staticPublishPath: .
+    autoDeployTrigger: commit
