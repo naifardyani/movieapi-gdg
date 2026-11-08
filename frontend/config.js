@@ -18,5 +18,5 @@
 
   window.FILMLOG_API_URL = isLocal
     ? 'http://localhost:8000/api'
-    : 'https://filmlog-api.onrender.com/api';
+    : 'https://movieapi-gdg-api.onrender.com/api';
 })();
