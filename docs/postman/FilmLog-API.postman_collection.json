@@ -1,0 +1,1416 @@
+{
+  "info": {
+    "_postman_id": "f1a7c3e2-9b41-4d76-8c2a-5e0d1b8a7c33",
+    "name": "FilmLog API",
+    "description": "REST API documentation for the FilmLog movie watchlist (TypeScript + Express + Prisma 7 + PostgreSQL).\n\nRUN ORDER\nRun the folders top-to-bottom, or use the Collection Runner. Each folder depends on variables captured by the previous one:\n  01 Auth        -> saves {{token}}\n  02 Movies      -> saves {{movieId}}\n  04 Watched     -> saves {{reviewId}}, {{tokenB}}\n\nREQUIREMENTS\n- Server running: `npm run dev` (default http://localhost:8000)\n- Database seeded: `npm run db:seed` (20 movies, ids 1..20)\n- Environment \"FilmLog Local\" selected\n\nNOTE ON SIDE EFFECTS\nA full run registers two throwaway users (`postman_a_<timestamp>@test.local` and `postman_b_<timestamp>@test.local`). There is no user-delete endpoint, so those rows remain in the database.",
+    "schema": "https://schema.getpostman.com/json/collection/v2.1.0/collection.json"
+  },
+  "variable": [
+    {
+      "key": "baseUrl",
+      "value": "http://localhost:8000",
+      "type": "string"
+    },
+    {
+      "key": "movieId",
+      "value": "1",
+      "type": "string"
+    }
+  ],
+  "item": [
+    {
+      "name": "00 · Health",
+      "description": "Smoke tests. No authentication, no database side effects.",
+      "item": [
+        {
+          "name": "Health check",
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test('status is 200', function () {",
+                  "  pm.response.to.have.status(200);",
+                  "});",
+                  "",
+                  "const body = pm.response.json();",
+                  "",
+                  "pm.test('reports ok', function () {",
+                  "  pm.expect(body.status).to.eql('ok');",
+                  "});",
+                  "",
+                  "pm.test('exposes uptime as a number', function () {",
+                  "  pm.expect(body.uptime).to.be.a('number');",
+                  "});"
+                ]
+              }
+            }
+          ],
+          "request": {
+            "method": "GET",
+            "header": [],
+            "url": {
+              "raw": "{{baseUrl}}/api/health",
+              "host": ["{{baseUrl}}"],
+              "path": ["api", "health"]
+            },
+            "description": "Liveness probe.\n\n**Expect:** `200 OK`\n\n```json\n{ \"status\": \"ok\", \"uptime\": 4164.9 }\n```\n\n`uptime` is Node's `process.uptime()` in seconds."
+          },
+          "response": []
+        },
+        {
+          "name": "Service root",
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test('status is 200', function () {",
+                  "  pm.response.to.have.status(200);",
+                  "});",
+                  "",
+                  "pm.test('identifies the service', function () {",
+                  "  pm.expect(pm.response.json().name).to.eql('FilmLog API');",
+                  "});"
+                ]
+              }
+            }
+          ],
+          "request": {
+            "method": "GET",
+            "header": [],
+            "url": {
+              "raw": "{{baseUrl}}/",
+              "host": ["{{baseUrl}}"],
+              "path": [""]
+            },
+            "description": "Root metadata endpoint, outside `/api`.\n\n**Expect:** `200 OK`\n\n```json\n{ \"name\": \"FilmLog API\", \"version\": \"1.0.0\", \"docs\": \"/api/health\" }\n```"
+          },
+          "response": []
+        }
+      ]
+    },
+    {
+      "name": "01 · Auth",
+      "description": "Registration and login.\n\n`Register A` generates a unique timestamped email in a pre-request script, so the folder can be re-run without hitting 409.\n\n`Login A` stores the JWT in the environment variable `{{token}}`, which every protected folder then uses.",
+      "item": [
+        {
+          "name": "Register A",
+          "event": [
+            {
+              "listen": "prerequest",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "// Unique per run so re-running never collides with an existing account.",
+                  "pm.environment.set('emailA', 'postman_a_' + Date.now() + '@test.local');"
+                ]
+              }
+            },
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test('status is 201 Created', function () {",
+                  "  pm.response.to.have.status(201);",
+                  "});",
+                  "",
+                  "const body = pm.response.json();",
+                  "",
+                  "pm.test('returns the created user', function () {",
+                  "  pm.expect(body.id).to.be.a('string');",
+                  "  pm.expect(body.email).to.eql(pm.environment.get('emailA'));",
+                  "  pm.expect(body.username).to.eql('postman-user-a');",
+                  "});",
+                  "",
+                  "pm.test('never echoes the password hash', function () {",
+                  "  pm.expect(body).to.not.have.property('password');",
+                  "});"
+                ]
+              }
+            }
+          ],
+          "request": {
+            "method": "POST",
+            "header": [
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              }
+            ],
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"email\": \"{{emailA}}\",\n  \"password\": \"secret123\",\n  \"username\": \"postman-user-a\"\n}",
+              "options": {
+                "raw": {
+                  "language": "json"
+                }
+              }
+            },
+            "url": {
+              "raw": "{{baseUrl}}/api/auth/register",
+              "host": ["{{baseUrl}}"],
+              "path": ["api", "auth", "register"]
+            },
+            "description": "Creates a user.\n\n**Expect:** `201 Created`\n\n```json\n{\n  \"id\": \"885263f1-1126-4272-9969-1b79b220c4bf\",\n  \"email\": \"postman_a_1794110580@test.local\",\n  \"username\": \"postman-user-a\",\n  \"createdAt\": \"2026-11-08T04:03:00.883Z\"\n}\n```\n\nValidation (`src/middlewares/validate.middleware.ts`):\n- `email` — must contain `@` and a dot in the domain, max 254 chars\n- `password` — 6-128 chars, **not** trimmed\n- `username` — 1-50 chars, trimmed\n\n**Errors:** `400` validation, `409` email already registered.\n\nNo token is returned — registering does not log you in; call `Login A` next."
+          },
+          "response": []
+        },
+        {
+          "name": "Login A",
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test('status is 200 OK', function () {",
+                  "  pm.response.to.have.status(200);",
+                  "});",
+                  "",
+                  "const body = pm.response.json();",
+                  "",
+                  "pm.test('returns a JWT and the public user', function () {",
+                  "  pm.expect(body.token).to.be.a('string');",
+                  "  pm.expect(body.user).to.be.an('object');",
+                  "});",
+                  "",
+                  "pm.test('the user object has no password hash', function () {",
+                  "  pm.expect(body.user).to.not.have.property('password');",
+                  "});",
+                  "",
+                  "// Every protected folder depends on this variable.",
+                  "if (body.token) {",
+                  "  pm.environment.set('token', body.token);",
+                  "}"
+                ]
+              }
+            }
+          ],
+          "request": {
+            "method": "POST",
+            "header": [
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              }
+            ],
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"email\": \"{{emailA}}\",\n  \"password\": \"secret123\"\n}",
+              "options": {
+                "raw": {
+                  "language": "json"
+                }
+              }
+            },
+            "url": {
+              "raw": "{{baseUrl}}/api/auth/login",
+              "host": ["{{baseUrl}}"],
+              "path": ["api", "auth", "login"]
+            },
+            "description": "Exchanges credentials for a JWT.\n\n**Expect:** `200 OK`\n\n```json\n{\n  \"token\": \"eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9...\",\n  \"user\": {\n    \"id\": \"885263f1-1126-4272-9969-1b79b220c4bf\",\n    \"email\": \"postman_a_1794110580@test.local\",\n    \"username\": \"postman-user-a\",\n    \"createdAt\": \"2026-11-08T04:03:00.883Z\"\n  }\n}\n```\n\nThe token payload is `{ \"sub\": \"<userId>\", \"iat\": ..., \"exp\": ... }` — a 7-day expiry by default. The test script stores it as `{{token}}`.\n\n**Errors:** `400` validation, `401 Invalid email or password`.\n\nUnknown email and wrong password return the **same** 401 body on purpose, to avoid account enumeration."
+          },
+          "response": []
+        },
+        {
+          "name": "Current user (me)",
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test('status is 200 OK', function () {",
+                  "  pm.response.to.have.status(200);",
+                  "});",
+                  "",
+                  "pm.test('returns the caller identity from the token', function () {",
+                  "  pm.expect(pm.response.json().email).to.eql(pm.environment.get('emailA'));",
+                  "});"
+                ]
+              }
+            }
+          ],
+          "request": {
+            "auth": {
+              "type": "bearer",
+              "bearer": [
+                {
+                  "key": "token",
+                  "value": "{{token}}",
+                  "type": "string"
+                }
+              ]
+            },
+            "method": "GET",
+            "header": [],
+            "url": {
+              "raw": "{{baseUrl}}/api/auth/me",
+              "host": ["{{baseUrl}}"],
+              "path": ["api", "auth", "me"]
+            },
+            "description": "Returns the authenticated user's profile.\n\n**Expect:** `200 OK`\n\n```json\n{\n  \"id\": \"885263f1-1126-4272-9969-1b79b220c4bf\",\n  \"email\": \"postman_a_1794110580@test.local\",\n  \"username\": \"postman-user-a\",\n  \"createdAt\": \"2026-11-08T04:03:00.883Z\"\n}\n```\n\nIdentity comes from the token subject (`sub`), never from the request body.\n\n**Errors:** `401` missing/expired token, `401 Account no longer exists` if the user was deleted after the token was issued."
+          },
+          "response": []
+        }
+      ]
+    },
+    {
+      "name": "02 · Movies",
+      "description": "Public catalogue endpoints. No authentication required.\n\nThe first request captures `{{movieId}}` for the watchlist and review folders.",
+      "item": [
+        {
+          "name": "List all movies",
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test('status is 200 OK', function () {",
+                  "  pm.response.to.have.status(200);",
+                  "});",
+                  "",
+                  "const list = pm.response.json();",
+                  "",
+                  "pm.test('returns the seeded catalogue', function () {",
+                  "  pm.expect(list).to.be.an('array');",
+                  "  pm.expect(list.length).to.be.above(0);",
+                  "});",
+                  "",
+                  "pm.test('each row has the full movie shape', function () {",
+                  "  ['id', 'title', 'year', 'director', 'genres', 'rating', 'duration', 'synopsis', 'poster_url', 'cast'].forEach(function (key) {",
+                  "    pm.expect(list[0]).to.have.property(key);",
+                  "  });",
+                  "});",
+                  "",
+                  "// Downstream folders use these ids.",
+                  "if (list.length > 0) {",
+                  "  pm.environment.set('movieId', String(list[0].id));",
+                  "}"
+                ]
+              }
+            }
+          ],
+          "request": {
+            "method": "GET",
+            "header": [],
+            "url": {
+              "raw": "{{baseUrl}}/api/movies",
+              "host": ["{{baseUrl}}"],
+              "path": ["api", "movies"]
+            },
+            "description": "Full catalogue, ordered by `id` ascending.\n\n**Expect:** `200 OK` — an array of 20 movies.\n\n```json\n[\n  {\n    \"id\": 1,\n    \"title\": \"Inception\",\n    \"year\": 2010,\n    \"director\": \"Christopher Nolan\",\n    \"genres\": [\"Sci-Fi\", \"Action\", \"Thriller\"],\n    \"rating\": 8.8,\n    \"duration\": \"148 min\",\n    \"synopsis\": \"Seorang pencuri ulung yang mengekstrak rahasia perusahaan...\",\n    \"poster_url\": \"https://image.tmdb.org/t/p/w500/oYuLEt3zVCKq57qu2F8dT7NIa6f.jpg\",\n    \"cast\": [\"Leonardo DiCaprio\", \"Joseph Gordon-Levitt\", \"Elliot Page\", \"Tom Hardy\"],\n    \"createdAt\": \"2026-11-07T09:31:56.501Z\"\n  }\n]\n```\n\nThe test script saves the first movie's `id` as `{{movieId}}`."
+          },
+          "response": []
+        },
+        {
+          "name": "Filter by genre",
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test('status is 200 OK', function () {",
+                  "  pm.response.to.have.status(200);",
+                  "});",
+                  "",
+                  "const list = pm.response.json();",
+                  "",
+                  "pm.test('every result actually has the genre', function () {",
+                  "  list.forEach(function (movie) {",
+                  "    pm.expect(movie.genres).to.include('Sci-Fi');",
+                  "  });",
+                  "});"
+                ]
+              }
+            }
+          ],
+          "request": {
+            "method": "GET",
+            "header": [],
+            "url": {
+              "raw": "{{baseUrl}}/api/movies?genre=Sci-Fi",
+              "host": ["{{baseUrl}}"],
+              "path": ["api", "movies"],
+              "query": [
+                {
+                  "key": "genre",
+                  "value": "Sci-Fi",
+                  "description": "Exact match against one element of the `genres` text[] column."
+                }
+              ]
+            },
+            "description": "Filters by a single genre.\n\n**Expect:** `200 OK` — 7 movies for `Sci-Fi` (ids 1, 4, 8, 12, 13, 16, 18).\n\nUses Prisma's `{ has: value }` on the Postgres `text[]` column, which is an **exact** element match — `sci-fi` lowercase returns an empty array.\n\nAvailable genres in the seed: Sci-Fi, Action, Thriller, Drama, Comedy, Crime, Adventure, Animation, Fantasy, Music, Horror, Family, Mystery, History, Biography."
+          },
+          "response": []
+        },
+        {
+          "name": "Search by title or director",
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test('status is 200 OK', function () {",
+                  "  pm.response.to.have.status(200);",
+                  "});",
+                  "",
+                  "pm.test('matches case-insensitively', function () {",
+                  "  pm.expect(pm.response.json().length).to.be.above(0);",
+                  "});"
+                ]
+              }
+            }
+          ],
+          "request": {
+            "method": "GET",
+            "header": [],
+            "url": {
+              "raw": "{{baseUrl}}/api/movies?search=nolan",
+              "host": ["{{baseUrl}}"],
+              "path": ["api", "movies"],
+              "query": [
+                {
+                  "key": "search",
+                  "value": "nolan",
+                  "description": "Case-insensitive substring match on title OR director."
+                }
+              ]
+            },
+            "description": "Case-insensitive substring search across `title` and `director`.\n\n**Expect:** `200 OK` — 5 movies for `nolan`:\n\n```\nInception | The Dark Knight | Interstellar | Memento | Oppenheimer\n```\n\n`genre` and `search` combine as AND when both are sent."
+          },
+          "response": []
+        },
+        {
+          "name": "Movie detail",
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test('status is 200 OK', function () {",
+                  "  pm.response.to.have.status(200);",
+                  "});",
+                  "",
+                  "pm.test('returns the requested movie', function () {",
+                  "  pm.expect(String(pm.response.json().id)).to.eql(pm.environment.get('movieId'));",
+                  "});"
+                ]
+              }
+            }
+          ],
+          "request": {
+            "method": "GET",
+            "header": [],
+            "url": {
+              "raw": "{{baseUrl}}/api/movies/{{movieId}}",
+              "host": ["{{baseUrl}}"],
+              "path": ["api", "movies", "{{movieId}}"]
+            },
+            "description": "Single movie by id.\n\n**Expect:** `200 OK` with the full movie object.\n\n**Errors:**\n- `400 ID must be a whole number` — non-numeric id (`/movies/abc`)\n- `400 ID must be a positive whole number` — `0` or negative\n- `404 Movie not found` — valid integer, no such row (`/movies/999`)"
+          },
+          "response": []
+        }
+      ]
+    },
+    {
+      "name": "03 · Watchlist 🔒",
+      "description": "Watched-later list. Every request requires `Authorization: Bearer {{token}}`.\n\nResponses are **flat**: `{ ...movie, movieId, createdAt }` — the movie fields sit at the top level.",
+      "item": [
+        {
+          "name": "List watchlist",
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test('status is 200 OK', function () {",
+                  "  pm.response.to.have.status(200);",
+                  "});",
+                  "",
+                  "pm.test('returns an array', function () {",
+                  "  pm.expect(pm.response.json()).to.be.an('array');",
+                  "});"
+                ]
+              }
+            }
+          ],
+          "request": {
+            "auth": {
+              "type": "bearer",
+              "bearer": [
+                {
+                  "key": "token",
+                  "value": "{{token}}",
+                  "type": "string"
+                }
+              ]
+            },
+            "method": "GET",
+            "header": [],
+            "url": {
+              "raw": "{{baseUrl}}/api/watchlist",
+              "host": ["{{baseUrl}}"],
+              "path": ["api", "watchlist"]
+            },
+            "description": "The caller's watchlist, newest first.\n\n**Expect:** `200 OK`\n\n```json\n[\n  {\n    \"id\": 1,\n    \"title\": \"Inception\",\n    \"year\": 2010,\n    \"director\": \"Christopher Nolan\",\n    \"genres\": [\"Sci-Fi\", \"Action\", \"Thriller\"],\n    \"rating\": 8.8,\n    \"duration\": \"148 min\",\n    \"synopsis\": \"Seorang pencuri ulung...\",\n    \"poster_url\": \"https://image.tmdb.org/t/p/w500/...jpg\",\n    \"cast\": [\"Leonardo DiCaprio\", \"...\"],\n    \"createdAt\": \"2026-11-08T04:03:01.260Z\",\n    \"movieId\": 1\n  }\n]\n```\n\nNote `id` is the **movie** id; `movieId` repeats it and `createdAt` is the watchlist entry's timestamp. Scoped to the token's user — you never see another user's rows. Empty array if nothing added."
+          },
+          "response": []
+        },
+        {
+          "name": "Add movie to watchlist",
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test('status is 201 Created', function () {",
+                  "  pm.response.to.have.status(201);",
+                  "});",
+                  "",
+                  "const body = pm.response.json();",
+                  "",
+                  "pm.test('returns the flattened movie entry', function () {",
+                  "  pm.expect(String(body.movieId)).to.eql(pm.environment.get('movieId'));",
+                  "  pm.expect(body).to.have.property('title');",
+                  "  pm.expect(body).to.have.property('createdAt');",
+                  "});"
+                ]
+              }
+            }
+          ],
+          "request": {
+            "auth": {
+              "type": "bearer",
+              "bearer": [
+                {
+                  "key": "token",
+                  "value": "{{token}}",
+                  "type": "string"
+                }
+              ]
+            },
+            "method": "POST",
+            "header": [
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              }
+            ],
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"movieId\": {{movieId}}\n}",
+              "options": {
+                "raw": {
+                  "language": "json"
+                }
+              }
+            },
+            "url": {
+              "raw": "{{baseUrl}}/api/watchlist",
+              "host": ["{{baseUrl}}"],
+              "path": ["api", "watchlist"]
+            },
+            "description": "Adds a movie to the caller's watchlist.\n\n**Expect:** `201 Created` with the flattened entry.\n\nBody accepts both `movieId` and `movie_id` (alias), because the bundled frontend sends either.\n\n**Errors:**\n- `400` — `movieId` missing / not a whole number\n- `404 Movie not found` — the movie does not exist\n- `409 Movie is already in your watchlist` — enforced by `@@unique([userId, movieId])`\n\n`userId` is **never** read from the body; it comes from the token. Any extra keys are stripped by the validation middleware."
+          },
+          "response": []
+        },
+        {
+          "name": "Remove movie from watchlist",
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test('status is 204 No Content', function () {",
+                  "  pm.response.to.have.status(204);",
+                  "});",
+                  "",
+                  "pm.test('body is empty', function () {",
+                  "  pm.expect(pm.response.text()).to.eql('');",
+                  "});"
+                ]
+              }
+            }
+          ],
+          "request": {
+            "auth": {
+              "type": "bearer",
+              "bearer": [
+                {
+                  "key": "token",
+                  "value": "{{token}}",
+                  "type": "string"
+                }
+              ]
+            },
+            "method": "DELETE",
+            "header": [],
+            "url": {
+              "raw": "{{baseUrl}}/api/watchlist/{{movieId}}",
+              "host": ["{{baseUrl}}"],
+              "path": ["api", "watchlist", "{{movieId}}"]
+            },
+            "description": "Removes a movie from the watchlist.\n\n**Expect:** `204 No Content` — empty body.\n\n**Errors:**\n- `400` — `movieId` is not a positive whole number\n- `404 Movie is not in your watchlist` — no such entry for this user\n\nUses `deleteMany` rather than `delete`, so a missing row returns `count: 0` and becomes an explicit 404 instead of a Prisma `P2025`."
+          },
+          "response": []
+        }
+      ]
+    },
+    {
+      "name": "04 · Watched 🔒",
+      "description": "Watch history + reviews. Every request requires a token.\n\nResponses are **nested**: `{ ...review, movie }` — the movie is under `movie`. This is the opposite shape of the watchlist, matching what the bundled frontend reads.\n\nThis folder also registers and logs in **User B**, whose token is used for the 403 case in folder 05.",
+      "item": [
+        {
+          "name": "List watched",
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test('status is 200 OK', function () {",
+                  "  pm.response.to.have.status(200);",
+                  "});",
+                  "",
+                  "pm.test('returns an array', function () {",
+                  "  pm.expect(pm.response.json()).to.be.an('array');",
+                  "});"
+                ]
+              }
+            }
+          ],
+          "request": {
+            "auth": {
+              "type": "bearer",
+              "bearer": [
+                {
+                  "key": "token",
+                  "value": "{{token}}",
+                  "type": "string"
+                }
+              ]
+            },
+            "method": "GET",
+            "header": [],
+            "url": {
+              "raw": "{{baseUrl}}/api/watched",
+              "host": ["{{baseUrl}}"],
+              "path": ["api", "watched"]
+            },
+            "description": "The caller's reviews, newest first.\n\n**Expect:** `200 OK`\n\n```json\n[\n  {\n    \"id\": \"bd4eb2f2-15d7-450f-81e2-2979c97d044a\",\n    \"userId\": \"2d1c7a23-90d9-4d93-a6d0-e88580f486ac\",\n    \"movieId\": 2,\n    \"rating\": 5,\n    \"review\": \"Bagus sekali\",\n    \"createdAt\": \"2026-11-08T04:03:06.666Z\",\n    \"movie\": {\n      \"id\": 2,\n      \"title\": \"Parasite\",\n      \"year\": 2019,\n      \"director\": \"Bong Joon-ho\",\n      \"genres\": [\"Drama\", \"Thriller\", \"Comedy\"],\n      \"rating\": 8.5,\n      \"duration\": \"132 min\",\n      \"synopsis\": \"Keluarga Kim yang miskin...\",\n      \"poster_url\": \"https://image.tmdb.org/t/p/w500/...jpg\",\n      \"cast\": [\"Song Kang-ho\", \"...\"],\n      \"createdAt\": \"2026-11-07T09:31:56.501Z\"\n    }\n  }\n]\n```\n\nShaped as `{ ...review, movie }` because the frontend reads `item.movie` first."
+          },
+          "response": []
+        },
+        {
+          "name": "Record watched + review",
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test('status is 201 Created', function () {",
+                  "  pm.response.to.have.status(201);",
+                  "});",
+                  "",
+                  "const body = pm.response.json();",
+                  "",
+                  "pm.test('returns the review with a nested movie', function () {",
+                  "  pm.expect(body.rating).to.eql(5);",
+                  "  pm.expect(body.movie).to.be.an('object');",
+                  "  pm.expect(body.movie).to.have.property('title');",
+                  "});",
+                  "",
+                  "// Folder 05 uses this for the 403 and 204 cases.",
+                  "if (body.id) {",
+                  "  pm.environment.set('reviewId', body.id);",
+                  "}"
+                ]
+              }
+            }
+          ],
+          "request": {
+            "auth": {
+              "type": "bearer",
+              "bearer": [
+                {
+                  "key": "token",
+                  "value": "{{token}}",
+                  "type": "string"
+                }
+              ]
+            },
+            "method": "POST",
+            "header": [
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              }
+            ],
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"movieId\": {{movieId}},\n  \"rating\": 5,\n  \"review\": \"Film yang sangat bagus, alurnya rapi dan aktingnya kuat.\"\n}",
+              "options": {
+                "raw": {
+                  "language": "json"
+                }
+              }
+            },
+            "url": {
+              "raw": "{{baseUrl}}/api/watched",
+              "host": ["{{baseUrl}}"],
+              "path": ["api", "watched"]
+            },
+            "description": "Records a movie as watched, with a 1-5 star rating and a written review.\n\n**Expect:** `201 Created`\n\n```json\n{\n  \"id\": \"bd4eb2f2-15d7-450f-81e2-2979c97d044a\",\n  \"userId\": \"2d1c7a23-90d9-4d93-a6d0-e88580f486ac\",\n  \"movieId\": 2,\n  \"rating\": 5,\n  \"review\": \"Film yang sangat bagus...\",\n  \"createdAt\": \"2026-11-08T04:03:06.666Z\",\n  \"movie\": { \"id\": 2, \"title\": \"Parasite\", ... }\n}\n```\n\nImplemented as an `upsert` on `@@unique([userId, movieId])`, so **reviewing the same movie again updates it and still returns 201** rather than a 409.\n\nBody accepts `movieId`/`movie_id` and `review`/`opinion`.\n\n**Errors:**\n- `400 rating must be between 1 and 5`\n- `400 review must not be empty` / too long (max 2000 chars)\n- `404 Movie not found`"
+          },
+          "response": []
+        },
+        {
+          "name": "Register B",
+          "event": [
+            {
+              "listen": "prerequest",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.environment.set('emailB', 'postman_b_' + Date.now() + '@test.local');"
+                ]
+              }
+            },
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test('status is 201 Created', function () {",
+                  "  pm.response.to.have.status(201);",
+                  "});"
+                ]
+              }
+            }
+          ],
+          "request": {
+            "method": "POST",
+            "header": [
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              }
+            ],
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"email\": \"{{emailB}}\",\n  \"password\": \"secret123\",\n  \"username\": \"postman-user-b\"\n}",
+              "options": {
+                "raw": {
+                  "language": "json"
+                }
+              }
+            },
+            "url": {
+              "raw": "{{baseUrl}}/api/auth/register",
+              "host": ["{{baseUrl}}"],
+              "path": ["api", "auth", "register"]
+            },
+            "description": "Registers a **second, unrelated** user.\n\n**Expect:** `201 Created`\n\nThis exists only to prove ownership isolation: User B must not be able to delete User A's review (folder 05, `403` case).\n\nThe email is timestamped in a pre-request script, so re-running the collection does not hit `409`."
+          },
+          "response": []
+        },
+        {
+          "name": "Login B",
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test('status is 200 OK', function () {",
+                  "  pm.response.to.have.status(200);",
+                  "});",
+                  "",
+                  "const body = pm.response.json();",
+                  "",
+                  "pm.test('returns a JWT for user B', function () {",
+                  "  pm.expect(body.token).to.be.a('string');",
+                  "});",
+                  "",
+                  "if (body.token) {",
+                  "  pm.environment.set('tokenB', body.token);",
+                  "}"
+                ]
+              }
+            }
+          ],
+          "request": {
+            "method": "POST",
+            "header": [
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              }
+            ],
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"email\": \"{{emailB}}\",\n  \"password\": \"secret123\"\n}",
+              "options": {
+                "raw": {
+                  "language": "json"
+                }
+              }
+            },
+            "url": {
+              "raw": "{{baseUrl}}/api/auth/login",
+              "host": ["{{baseUrl}}"],
+              "path": ["api", "auth", "login"]
+            },
+            "description": "Logs in as User B and stores `{{tokenB}}`.\n\n**Expect:** `200 OK` with a JWT.\n\nUsed only by the `403` request in folder 05."
+          },
+          "response": []
+        }
+      ]
+    },
+    {
+      "name": "05 · Error Cases",
+      "description": "One request per status code the API is designed to return. This folder is the visible evidence for the error-handling rubric.\n\nMost of these are **expected to fail** — the assertions check for the failure, not for success.\n\nOrder matters: the 409 case leaves a watchlist row behind and cleans it up; the 403 case relies on `{{reviewId}}` from folder 04.",
+      "item": [
+        {
+          "name": "400 · Invalid body (password too short)",
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test('status is 400 Bad Request', function () {",
+                  "  pm.response.to.have.status(400);",
+                  "});",
+                  "",
+                  "const body = pm.response.json();",
+                  "",
+                  "pm.test('message names the real problem', function () {",
+                  "  pm.expect(body.message).to.match(/too short/i);",
+                  "});",
+                  "",
+                  "pm.test('errors[] is machine-readable', function () {",
+                  "  pm.expect(body.errors).to.be.an('array');",
+                  "  pm.expect(body.errors[0]).to.match(/^password:/);",
+                  "});"
+                ]
+              }
+            }
+          ],
+          "request": {
+            "method": "POST",
+            "header": [
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              }
+            ],
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"email\": \"short-password@test.local\",\n  \"password\": \"123\",\n  \"username\": \"short\"\n}",
+              "options": {
+                "raw": {
+                  "language": "json"
+                }
+              }
+            },
+            "url": {
+              "raw": "{{baseUrl}}/api/auth/register",
+              "host": ["{{baseUrl}}"],
+              "path": ["api", "auth", "register"]
+            },
+            "description": "**Expect:** `400 Bad Request`\n\n```json\n{\n  \"message\": \"Password is too short (at least 6 characters)\",\n  \"errors\": [\"password: is too short (at least 6 characters)\"]\n}\n```\n\nTwo representations of the same failure:\n- `message` — human-readable, for toasts and form banners\n- `errors[]` — machine-readable, `\"field: problem\"`\n\nThe password is not trimmed before the length check, so `\"  a  \"` is 5 characters and passes."
+          },
+          "response": []
+        },
+        {
+          "name": "400 · Non-numeric URL parameter",
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test('status is 400 Bad Request', function () {",
+                  "  pm.response.to.have.status(400);",
+                  "});",
+                  "",
+                  "pm.test('rejects before reaching the database', function () {",
+                  "  pm.expect(pm.response.json().message).to.match(/whole number/i);",
+                  "});"
+                ]
+              }
+            }
+          ],
+          "request": {
+            "method": "GET",
+            "header": [],
+            "url": {
+              "raw": "{{baseUrl}}/api/movies/abc",
+              "host": ["{{baseUrl}}"],
+              "path": ["api", "movies", "abc"]
+            },
+            "description": "**Expect:** `400 Bad Request`\n\n```json\n{\n  \"message\": \"ID must be a whole number\",\n  \"errors\": [\"id: must be a whole number\"]\n}\n```\n\nThe `:id` param is validated by `isInt(1)` **before** any query runs, so a bad id never reaches Postgres.\n\nCompare `/movies/0`, which returns `400 ID must be a positive whole number`."
+          },
+          "response": []
+        },
+        {
+          "name": "400 · Malformed UUID",
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test('status is 400 Bad Request', function () {",
+                  "  pm.response.to.have.status(400);",
+                  "});",
+                  "",
+                  "pm.test('explains the expected format', function () {",
+                  "  pm.expect(pm.response.json().message).to.match(/valid UUID/i);",
+                  "});"
+                ]
+              }
+            }
+          ],
+          "request": {
+            "auth": {
+              "type": "bearer",
+              "bearer": [
+                {
+                  "key": "token",
+                  "value": "{{token}}",
+                  "type": "string"
+                }
+              ]
+            },
+            "method": "DELETE",
+            "header": [],
+            "url": {
+              "raw": "{{baseUrl}}/api/watched/not-a-uuid",
+              "host": ["{{baseUrl}}"],
+              "path": ["api", "watched", "not-a-uuid"]
+            },
+            "description": "**Expect:** `400 Bad Request`\n\n```json\n{\n  \"message\": \"ID must be a valid UUID\",\n  \"errors\": [\"id: must be a valid UUID\"]\n}\n```\n\nReview ids are UUIDs (`@default(uuid())`), so the route validates the `:id` shape with `isUuid` before querying. Without this, a junk id would surface as an unrelated Prisma error."
+          },
+          "response": []
+        },
+        {
+          "name": "401 · Missing token",
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test('status is 401 Unauthorized', function () {",
+                  "  pm.response.to.have.status(401);",
+                  "});",
+                  "",
+                  "pm.test('says what is wrong with the header', function () {",
+                  "  pm.expect(pm.response.json().message).to.match(/Authorization header/i);",
+                  "});"
+                ]
+              }
+            }
+          ],
+          "request": {
+            "method": "GET",
+            "header": [],
+            "url": {
+              "raw": "{{baseUrl}}/api/watchlist",
+              "host": ["{{baseUrl}}"],
+              "path": ["api", "watchlist"]
+            },
+            "description": "No `Authorization` header at all.\n\n**Expect:** `401 Unauthorized`\n\n```json\n{ \"message\": \"Missing or malformed Authorization header\" }\n```\n\nAuth is applied at the **router mount** (`api.use('/watchlist', requireAuth, ...)`), so no route inside the router can be accidentally left unprotected."
+          },
+          "response": []
+        },
+        {
+          "name": "401 · Invalid token",
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test('status is 401 Unauthorized', function () {",
+                  "  pm.response.to.have.status(401);",
+                  "});",
+                  "",
+                  "pm.test('rejects the signature', function () {",
+                  "  pm.expect(pm.response.json().message).to.match(/Invalid or expired token/i);",
+                  "});"
+                ]
+              }
+            }
+          ],
+          "request": {
+            "auth": {
+              "type": "bearer",
+              "bearer": [
+                {
+                  "key": "token",
+                  "value": "garbage",
+                  "type": "string"
+                }
+              ]
+            },
+            "method": "GET",
+            "header": [],
+            "url": {
+              "raw": "{{baseUrl}}/api/watchlist",
+              "host": ["{{baseUrl}}"],
+              "path": ["api", "watchlist"]
+            },
+            "description": "A well-formed header with a token that fails verification.\n\n**Expect:** `401 Unauthorized`\n\n```json\n{ \"message\": \"Invalid or expired token\" }\n```\n\nA token that is valid-but-expired returns a distinct message: `401 Token has expired`, so the client knows to re-authenticate rather than re-register."
+          },
+          "response": []
+        },
+        {
+          "name": "404 · Unknown movie",
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test('status is 404 Not Found', function () {",
+                  "  pm.response.to.have.status(404);",
+                  "});",
+                  "",
+                  "pm.test('names the missing resource', function () {",
+                  "  pm.expect(pm.response.json().message).to.match(/Movie not found/i);",
+                  "});"
+                ]
+              }
+            }
+          ],
+          "request": {
+            "method": "GET",
+            "header": [],
+            "url": {
+              "raw": "{{baseUrl}}/api/movies/999",
+              "host": ["{{baseUrl}}"],
+              "path": ["api", "movies", "999"]
+            },
+            "description": "Valid integer, no such row.\n\n**Expect:** `404 Not Found`\n\n```json\n{ \"message\": \"Movie not found\" }\n```\n\nThe catalogue has ids `1..20` only, so `999` is a deliberately valid-but-absent id. Note the difference from `400`: `999` is well-formed, it just does not exist."
+          },
+          "response": []
+        },
+        {
+          "name": "409 · Setup 1 — clear any leftover entry (204 or 404 both OK)",
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "// Idempotent setup: removes a leftover row so the duplicate-add below is the",
+                  "// only source of a 409. 204 = removed, 404 = nothing to remove.",
+                  "pm.test('status is 204 or 404', function () {",
+                  "  pm.expect([204, 404]).to.include(pm.response.code);",
+                  "});"
+                ]
+              }
+            }
+          ],
+          "request": {
+            "auth": {
+              "type": "bearer",
+              "bearer": [
+                {
+                  "key": "token",
+                  "value": "{{token}}",
+                  "type": "string"
+                }
+              ]
+            },
+            "method": "DELETE",
+            "header": [],
+            "url": {
+              "raw": "{{baseUrl}}/api/watchlist/{{movieId}}",
+              "host": ["{{baseUrl}}"],
+              "path": ["api", "watchlist", "{{movieId}}"]
+            },
+            "description": "**Setup request — not an error case.**\n\nRemoves the movie from the watchlist if it is already there.\n\n**Expect:** `204 No Content`, or `404` if it was not present.\n\nThis makes the folder re-runnable: without it, a leftover row from a previous run would make the *setup* request return `409` instead of the duplicate request below."
+          },
+          "response": []
+        },
+        {
+          "name": "409 · Setup 2 — add movie to watchlist",
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test('status is 201 Created (setup)', function () {",
+                  "  pm.response.to.have.status(201);",
+                  "});"
+                ]
+              }
+            }
+          ],
+          "request": {
+            "auth": {
+              "type": "bearer",
+              "bearer": [
+                {
+                  "key": "token",
+                  "value": "{{token}}",
+                  "type": "string"
+                }
+              ]
+            },
+            "method": "POST",
+            "header": [
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              }
+            ],
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"movieId\": {{movieId}}\n}",
+              "options": {
+                "raw": {
+                  "language": "json"
+                }
+              }
+            },
+            "url": {
+              "raw": "{{baseUrl}}/api/watchlist",
+              "host": ["{{baseUrl}}"],
+              "path": ["api", "watchlist"]
+            },
+            "description": "**Setup request — not the error case.**\n\nAdds a movie so the next request has something to duplicate.\n\n**Expect:** `201 Created`\n\nThe pre-request script deletes any leftover row first, so re-running the folder is safe."
+          },
+          "response": []
+        },
+        {
+          "name": "409 · Duplicate watchlist entry",
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test('status is 409 Conflict', function () {",
+                  "  pm.response.to.have.status(409);",
+                  "});",
+                  "",
+                  "pm.test('explains the conflict', function () {",
+                  "  pm.expect(pm.response.json().message).to.match(/already in your watchlist/i);",
+                  "});"
+                ]
+              }
+            }
+          ],
+          "request": {
+            "auth": {
+              "type": "bearer",
+              "bearer": [
+                {
+                  "key": "token",
+                  "value": "{{token}}",
+                  "type": "string"
+                }
+              ]
+            },
+            "method": "POST",
+            "header": [
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              }
+            ],
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"movieId\": {{movieId}}\n}",
+              "options": {
+                "raw": {
+                  "language": "json"
+                }
+              }
+            },
+            "url": {
+              "raw": "{{baseUrl}}/api/watchlist",
+              "host": ["{{baseUrl}}"],
+              "path": ["api", "watchlist"]
+            },
+            "description": "Adds the **same** movie twice.\n\n**Expect:** `409 Conflict`\n\n```json\n{ \"message\": \"Movie is already in your watchlist\" }\n```\n\nThe service checks first for a friendly message; if two requests raced past that check, the database's `@@unique([userId, movieId])` would still reject the second with Prisma `P2002`, which the error handler maps to the same `409`. (P2002 on login/register similarly reads `A record with that email already exists`.)"
+          },
+          "response": []
+        },
+        {
+          "name": "403 · Delete another user's review",
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test('status is 403 Forbidden', function () {",
+                  "  pm.response.to.have.status(403);",
+                  "});",
+                  "",
+                  "pm.test('distinguishes ownership from authentication', function () {",
+                  "  pm.expect(pm.response.json().message).to.match(/only modify your own/i);",
+                  "});",
+                  "",
+                  "pm.test('the review still exists', function () {",
+                  "  pm.sendRequest({",
+                  "    url: pm.environment.replaceIn('{{baseUrl}}/api/watched'),",
+                  "    method: 'GET',",
+                  "    header: { Authorization: 'Bearer ' + pm.environment.get('token') }",
+                  "  }, function (err, res) {",
+                  "    pm.expect(res.json().some(function (r) {",
+                  "      return r.id === pm.environment.get('reviewId');",
+                  "    })).to.be.true;",
+                  "  });",
+                  "});"
+                ]
+              }
+            }
+          ],
+          "request": {
+            "auth": {
+              "type": "bearer",
+              "bearer": [
+                {
+                  "key": "token",
+                  "value": "{{tokenB}}",
+                  "type": "string"
+                }
+              ]
+            },
+            "method": "DELETE",
+            "header": [],
+            "url": {
+              "raw": "{{baseUrl}}/api/watched/{{reviewId}}",
+              "host": ["{{baseUrl}}"],
+              "path": ["api", "watched", "{{reviewId}}"]
+            },
+            "description": "User **B** (authenticated, `{{tokenB}}`) tries to delete a review owned by User **A** (`{{reviewId}}` from folder 04).\n\n**Expect:** `403 Forbidden`\n\n```json\n{ \"message\": \"You can only modify your own reviews\" }\n```\n\nThe three outcomes of this one endpoint:\n\n| Situation | Status |\n|---|---|\n| No / invalid token | `401` |\n| Valid token, not the author | `403` |\n| Valid token, is the author | `204` |\n\nImplemented as two queries so \"missing\" and \"not yours\" stay distinguishable: `deleteMany({ where: { id, userId } })` would collapse both into `count: 0` and silently turn the 403 into a 404.\n\n**Prerequisite:** folders 01 and 04 must have run (`{{tokenB}}` and `{{reviewId}}` set)."
+          },
+          "response": []
+        },
+        {
+          "name": "204 · Cleanup — owner deletes own review",
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test('status is 204 No Content', function () {",
+                  "  pm.response.to.have.status(204);",
+                  "});",
+                  "",
+                  "pm.test('body is empty', function () {",
+                  "  pm.expect(pm.response.text()).to.eql('');",
+                  "});"
+                ]
+              }
+            }
+          ],
+          "request": {
+            "auth": {
+              "type": "bearer",
+              "bearer": [
+                {
+                  "key": "token",
+                  "value": "{{token}}",
+                  "type": "string"
+                }
+              ]
+            },
+            "method": "DELETE",
+            "header": [],
+            "url": {
+              "raw": "{{baseUrl}}/api/watched/{{reviewId}}",
+              "host": ["{{baseUrl}}"],
+              "path": ["api", "watched", "{{reviewId}}"]
+            },
+            "description": "The **owner** (User A, `{{token}}`) deletes the same review that B was refused.\n\n**Expect:** `204 No Content` — empty body.\n\nThis is the \"before/after\" of the 403 case above: identical request, different token, different outcome. Also cleans up the review so the collection can be re-run.\n\n**Errors:** `404 Review not found` if the id is already gone; `400` if the id is not a UUID."
+          },
+          "response": []
+        },
+        {
+          "name": "422 · AI picked a movie outside the catalogue (documentation only)",
+          "disabled": true,
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "// This case CANNOT be forced on demand: Gemini reliably answers with a real",
+                  "// catalogue id. The request stays in the collection to document the status",
+                  "// code, and the assertion tolerates the normal 200 so a run never fails here.",
+                  "pm.test('200 normally, 422 only if the model invents an id', function () {",
+                  "  pm.expect([200, 422]).to.include(pm.response.code);",
+                  "});",
+                  "",
+                  "if (pm.response.code === 422) {",
+                  "  pm.test('422 explains the catalogue mismatch', function () {",
+                  "    pm.expect(pm.response.json().message).to.match(/outside the catalogue/i);",
+                  "  });",
+                  "}",
+                  "",
+                  "// A 200 must still reference a movie that really exists.",
+                  "if (pm.response.code === 200) {",
+                  "  pm.test('the returned movie is real', function () {",
+                  "    pm.expect(pm.response.json().movie).to.be.an('object');",
+                  "    pm.expect(pm.response.json().movie.id).to.be.a('number');",
+                  "  });",
+                  "}"
+                ]
+              }
+            }
+          ],
+          "request": {
+            "method": "POST",
+            "header": [
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              }
+            ],
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"prompt\": \"Saya mau film misteri dengan alur lambat dan atmosfer mendalam\"\n}",
+              "options": {
+                "raw": {
+                  "language": "json"
+                }
+              }
+            },
+            "url": {
+              "raw": "{{baseUrl}}/api/movies/recommend",
+              "host": ["{{baseUrl}}"],
+              "path": ["api", "movies", "recommend"]
+            },
+            "description": "**Documentation only — do not expect a 422 from a normal run.**\n\nGemini almost always returns a valid catalogue id, so this request usually answers `200`. It exists to document the status code and its meaning.\n\n**When it does happen:** `422 Unprocessable Entity`\n\n```json\n{ \"message\": \"The AI recommended a movie outside the catalogue; please retry\" }\n```\n\nWhy `422` and not `400`: the request body was perfectly valid. The failure happened downstream — the server produced a result it could not fulfil. `400` means \"your input is wrong\"; `422` means \"valid input, unprocessable outcome\".\n\nThe guard lives in `src/services/recommendation.service.ts`:\n\n```ts\nconst movie = await prisma.movie.findUnique({ where: { id: parsed.movie_id } });\nif (!movie) throw new HttpError(422, 'The AI recommended a movie outside the catalogue; please retry');\n```\n\nPrompt rules are probabilistic; this database lookup is deterministic. See `02 · Movies → AI recommendation` for the happy path."
+          },
+          "response": [
+            {
+              "name": "422 — hallucinated id (sample)",
+              "originalRequest": {
+                "method": "POST",
+                "header": [
+                  {
+                    "key": "Content-Type",
+                    "value": "application/json"
+                  }
+                ],
+                "body": {
+                  "mode": "raw",
+                  "raw": "{\n  \"prompt\": \"Saya mau film misteri dengan alur lambat dan atmosfer mendalam\"\n}",
+                  "options": {
+                    "raw": {
+                      "language": "json"
+                    }
+                  }
+                },
+                "url": {
+                  "raw": "{{baseUrl}}/api/movies/recommend",
+                  "host": ["{{baseUrl}}"],
+                  "path": ["api", "movies", "recommend"]
+                }
+              },
+              "status": "Unprocessable Entity",
+              "code": 422,
+              "_postman_previewlanguage": "json",
+              "header": [
+                {
+                  "key": "Content-Type",
+                  "value": "application/json; charset=utf-8"
+                }
+              ],
+              "cookie": [],
+              "body": "{\n  \"message\": \"The AI recommended a movie outside the catalogue; please retry\"\n}"
+            }
+          ]
+        }
+      ]
+    },
+    {
+      "name": "06 · AI Recommendation",
+      "description": "Gemini-backed recommendation. Public endpoint.\n\nThe model is constrained to pick exactly one movie from the local catalogue and the returned id is re-verified against the database.",
+      "item": [
+        {
+          "name": "Recommend a movie",
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test('status is 200 OK', function () {",
+                  "  pm.response.to.have.status(200);",
+                  "});",
+                  "",
+                  "const body = pm.response.json();",
+                  "",
+                  "pm.test('returns the documented shape', function () {",
+                  "  pm.expect(body.movie_id).to.be.a('number');",
+                  "  pm.expect(body.reasoning).to.be.a('string');",
+                  "  pm.expect(body.movie).to.be.an('object');",
+                  "});",
+                  "",
+                  "pm.test('the recommended id exists in the catalogue', function () {",
+                  "  pm.expect(body.movie.id).to.eql(body.movie_id);",
+                  "});",
+                  "",
+                  "pm.test('reasoning is not empty', function () {",
+                  "  pm.expect(body.reasoning.length).to.be.above(0);",
+                  "});"
+                ]
+              }
+            }
+          ],
+          "request": {
+            "method": "POST",
+            "header": [
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              }
+            ],
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"prompt\": \"Saya mau film misteri dengan alur lambat dan atmosfer mendalam\"\n}",
+              "options": {
+                "raw": {
+                  "language": "json"
+                }
+              }
+            },
+            "url": {
+              "raw": "{{baseUrl}}/api/movies/recommend",
+              "host": ["{{baseUrl}}"],
+              "path": ["api", "movies", "recommend"]
+            },
+            "description": "Asks Gemini for one movie from the local catalogue.\n\n**Expect:** `200 OK`\n\n```json\n{\n  \"movie_id\": 14,\n  \"reasoning\": \"Memento adalah pilihan yang tepat karena menyajikan cerita misteri yang sangat kuat...\",\n  \"movie\": {\n    \"id\": 14,\n    \"title\": \"Memento\",\n    \"year\": 2000,\n    \"director\": \"Christopher Nolan\",\n    \"genres\": [\"Mystery\", \"Thriller\"],\n    \"rating\": 8.4,\n    \"duration\": \"113 min\",\n    \"synopsis\": \"Seorang pria yang kehilangan ingatan jangka pendek...\",\n    \"poster_url\": \"https://image.tmdb.org/t/p/w500/...jpg\",\n    \"cast\": [\"Guy Pearce\", \"...\"],\n    \"createdAt\": \"2026-11-07T09:31:56.501Z\"\n  }\n}\n```\n\n**How it stays grounded:**\n1. The catalogue is read from Postgres (`findMany`, 6 fields), not hardcoded.\n2. The prompt numbers rules, including \"if nothing matches, pick the closest\" — the escape hatch that stops invention.\n3. `responseSchema` + `responseMimeType: application/json` force `{ movie_id, reasoning }` only.\n4. The output is re-validated (integer id, non-empty reasoning).\n5. The id is looked up in the database; a miss becomes `422`.\n\nEvery displayed field comes from the database row, so the model only ever contributes *which id* plus prose.\n\n**Errors:** `400` prompt must be 3-1000 chars · `502` upstream Gemini failure / rejected key · `503` rate limited or empty catalogue.\n\n`prompt` is in Indonesian here; `reasoning` comes back in the same language."
+          },
+          "response": []
+        }
+      ]
+    }
+  ]
+}

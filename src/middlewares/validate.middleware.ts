@@ -16,15 +16,29 @@ const MAX_STRING_LENGTH = 10_000;
 /*                              Primitive validators                          */
 /* -------------------------------------------------------------------------- */
 
+/** Distinguishes an absent field from one sent with the wrong type. */
+function missing(input: unknown): boolean {
+  return input === undefined || input === null;
+}
+
 export const isString =
   (min = 1, max = 500): Validator<string> =>
   (input) => {
+    if (missing(input)) {
+      return { ok: false, errors: ["is required"] };
+    }
     if (typeof input !== "string") {
       return { ok: false, errors: ["must be a string"] };
     }
     const value = input.trim();
-    if (value.length < min || value.length > max) {
-      return { ok: false, errors: [`must be between ${min} and ${max} characters`] };
+    if (value.length < min) {
+      return {
+        ok: false,
+        errors: [min === 1 ? "must not be empty" : `is too short (at least ${min} characters)`],
+      };
+    }
+    if (value.length > max) {
+      return { ok: false, errors: [`is too long (at most ${max} characters)`] };
     }
     return { ok: true, value };
   };
@@ -33,6 +47,9 @@ export const isString =
 export const isText = (min = 1, max = MAX_STRING_LENGTH): Validator<string> => isString(min, max);
 
 export const isEmail: Validator<string> = (input) => {
+  if (missing(input)) {
+    return { ok: false, errors: ["is required"] };
+  }
   if (typeof input !== "string") {
     return { ok: false, errors: ["must be a string"] };
   }
@@ -44,12 +61,29 @@ export const isEmail: Validator<string> = (input) => {
   return { ok: true, value };
 };
 
+const PASSWORD_MIN = 6;
+const PASSWORD_MAX = 128;
+
 export const isPassword: Validator<string> = (input) => {
+  if (missing(input)) {
+    return { ok: false, errors: ["is required"] };
+  }
   if (typeof input !== "string") {
     return { ok: false, errors: ["must be a string"] };
   }
-  if (input.length < 6 || input.length > 128) {
-    return { ok: false, errors: ["must be between 6 and 128 characters"] };
+  if (input.length < PASSWORD_MIN) {
+    // Spelled out so the client can show a useful warning instead of a generic
+    // "validation failed" message.
+    return {
+      ok: false,
+      errors: [`is too short (at least ${PASSWORD_MIN} characters)`],
+    };
+  }
+  if (input.length > PASSWORD_MAX) {
+    return {
+      ok: false,
+      errors: [`is too long (at most ${PASSWORD_MAX} characters)`],
+    };
   }
   return { ok: true, value: input };
 };
@@ -61,6 +95,10 @@ export const isPassword: Validator<string> = (input) => {
 export const isInt =
   (min: number, max = Number.MAX_SAFE_INTEGER): Validator<number> =>
   (input) => {
+    if (missing(input)) {
+      return { ok: false, errors: ["is required"] };
+    }
+
     const parsed =
       typeof input === "number"
         ? input
@@ -68,8 +106,18 @@ export const isInt =
           ? Number(input)
           : Number.NaN;
 
-    if (!Number.isInteger(parsed) || parsed < min || parsed > max) {
-      return { ok: false, errors: [`must be an integer between ${min} and ${max}`] };
+    if (!Number.isInteger(parsed)) {
+      return { ok: false, errors: ["must be a whole number"] };
+    }
+    if (parsed < min || parsed > max) {
+      return {
+        ok: false,
+        errors: [
+          min === 1 && max === Number.MAX_SAFE_INTEGER
+            ? "must be a positive whole number"
+            : `must be between ${min} and ${max}`,
+        ],
+      };
     }
     return { ok: true, value: parsed };
   };
@@ -83,6 +131,23 @@ export const optional =
     }
     return validator(input);
   };
+
+const UUID_PATTERN = /^[0-9a-f]{8}-[0-9a-f]{4}-[1-5][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i;
+
+/** Prisma `@default(uuid())` ids. Rejects junk before it reaches the database. */
+export const isUuid: Validator<string> = (input) => {
+  if (missing(input)) {
+    return { ok: false, errors: ["is required"] };
+  }
+  if (typeof input !== "string") {
+    return { ok: false, errors: ["must be a string"] };
+  }
+  const value = input.trim();
+  if (!UUID_PATTERN.test(value)) {
+    return { ok: false, errors: ["must be a valid UUID"] };
+  }
+  return { ok: true, value };
+};
 
 /* -------------------------------------------------------------------------- */
 /*                                  Middleware                                */
@@ -139,6 +204,36 @@ function runShape<T extends Record<string, unknown>>(
   return { ok: true, value: normalized as Partial<T> };
 }
 
+/** "password: is too short (...)" -> "Password is too short (...)" */
+function humanize(error: string): string {
+  const separator = error.indexOf(": ");
+  if (separator === -1) {
+    return error;
+  }
+
+  const field = error.slice(0, separator).trim();
+  const detail = error.slice(separator + 2).trim();
+
+  // camelCase -> spaced words, then title-case: movieId -> Movie ID.
+  const spaced = field.replace(/([a-z0-9])([A-Z])/g, "$1 $2");
+  const capitalized = spaced.charAt(0).toUpperCase() + spaced.slice(1);
+
+  return `${capitalized.replace(/\bId\b/g, "ID")} ${detail}`;
+}
+
+/**
+ * A message the UI can display as-is.
+ *
+ * `errors` stays machine-readable ("password: is too short"); this turns the
+ * same information into a sentence so a client that only reads `message` (like
+ * frontend/app.js) still tells the user exactly what is wrong.
+ */
+function describeErrors(errors: string[]): string {
+  const messages = errors.map(humanize);
+  // No generic "Validation failed" prefix: every line names a real problem.
+  return messages.length === 0 ? "Validation failed" : messages.join("; ");
+}
+
 function validate(
   target: Target,
   shape: ValidatorShape<Record<string, unknown>>,
@@ -148,8 +243,15 @@ function validate(
     const result = runShape(shape, req[target], aliases);
 
     if (!result.ok) {
-      res.status(422).json({
-        message: "Validation failed",
+      // 400: the client sent a payload that fails validation. (422 is reserved
+      // for well-formed requests that the server cannot process semantically,
+      // e.g. the AI naming a movie outside the catalogue.)
+      //
+      // `message` repeats the concrete problems, not just "Validation failed":
+      // the frontend companion only reads `message`, so this is what the user
+      // actually sees in the toast / auth form.
+      res.status(400).json({
+        message: describeErrors(result.errors),
         errors: result.errors,
       });
       return;

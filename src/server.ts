@@ -33,3 +33,15 @@ async function shutdown(signal: string): Promise<void> {
 
 process.on("SIGINT", () => void shutdown("SIGINT"));
 process.on("SIGTERM", () => void shutdown("SIGTERM"));
+
+// Last-resort safety nets: log and exit non-zero rather than continuing in an
+// unknown state. The HTTP error middleware already covers request-scoped errors.
+process.on("unhandledRejection", (reason) => {
+  console.error("[server] Unhandled promise rejection:", reason);
+  void shutdown("unhandledRejection");
+});
+
+process.on("uncaughtException", (error) => {
+  console.error("[server] Uncaught exception:", error);
+  void shutdown("uncaughtException");
+});

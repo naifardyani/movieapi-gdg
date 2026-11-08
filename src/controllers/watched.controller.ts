@@ -25,3 +25,8 @@ export const record: RequestHandler = async (req, res) => {
 
   res.status(201).json(item);
 };
+
+export const remove: RequestHandler = async (req, res) => {
+  await watchedService.deleteReview(currentUserId(req), String(req.params.id));
+  res.status(204).send();
+};

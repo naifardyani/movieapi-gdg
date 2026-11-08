@@ -7,5 +7,6 @@ node_modules
 dist
 .agents/
 .claude/
+.vscode/
 
 /generated/prisma

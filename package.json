@@ -8,8 +8,9 @@
     "dev": "tsx watch src/server.ts",
     "build": "tsc",
     "start": "node dist/server.js",
-    "typecheck": "tsc --noEmit",
-    "test": "echo \"Error: no test specified\" && exit 1",
+    "typecheck": "tsc --noEmit && tsc -p tsconfig.tools.json",
+    "test": "node scripts/run-tests.mjs",
+    "test:unit": "tsx --test \"tests/unit/**/*.test.ts\"",
     "db:push": "prisma db push",
     "db:seed": "prisma db seed"
   },
