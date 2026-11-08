@@ -30,6 +30,7 @@ export type AuthResult = {
   user: PublicUser;
 };
 
+//login signs a jwt token carrying only the user id, and the token will be used to authenticate the user in the future requests
 function signToken(userId: string): string {
   const options = { expiresIn: env.JWT_EXPIRES_IN } as jwt.SignOptions;
   return jwt.sign({ sub: userId }, env.JWT_SECRET, options);
@@ -49,6 +50,7 @@ export async function register(input: {
     throw new HttpError(409, "An account with that email already exists");
   }
 
+  //password are hashed, so that they are not stored in plain text in the database, enhancing security. The bcrypt library is used for hashing, which is a widely accepted method for securely storing passwords.
   const password = await bcrypt.hash(input.password, BCRYPT_ROUNDS);
 
   return prisma.user.create({
@@ -67,7 +69,7 @@ export async function login(input: { email: string; password: string }): Promise
     select: { id: true, email: true, username: true, createdAt: true, password: true },
   });
 
-  // Same message for unknown email and wrong password: no account enumeration.
+  // Checks the user existence and password validity. If either fails, it throws an HttpError with a 401 status code and a message indicating invalid credentials. This is done to prevent revealing whether the email or password was incorrect, enhancing security.
   if (!user) {
     throw new HttpError(401, "Invalid email or password");
   }

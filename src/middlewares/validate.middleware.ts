@@ -1,11 +1,8 @@
 /**
  * Dependency-free request validation middleware.
  *
- * Every validator returns the *normalized* value, and the middleware replaces
- * req.body / req.query / req.params with only the validated keys. Unknown keys
- * (for example a client-supplied `userId`) are silently dropped, which is what
- * makes ownership checks structural instead of something every handler must
- * remember to do.
+ * Every validator takes untrusted input and returns either a normalized value or a list of errors. This replaces
+ * req.body / req.query / req.params with only the validated keys. Unknown keys are silently dropped, so the controller can trust what the validator allows.
  */
 import type { NextFunction, Request, RequestHandler, Response } from "express";
 import type { ValidationResult, Validator, ValidatorShape } from "../types/validators.js";

@@ -34,6 +34,7 @@ function extractToken(header: string | undefined): string {
 function verifyToken(token: string): string {
   let payload: string | jwt.JwtPayload;
 
+  //every protected route will call this function to verify the token, and if the token is invalid or expired, it will throw an HttpError with a 401 status code and a message indicating the issue. This ensures that only authenticated users can access protected routes, which are watchlist and watched.
   try {
     payload = jwt.verify(token, env.JWT_SECRET);
   } catch (error) {
