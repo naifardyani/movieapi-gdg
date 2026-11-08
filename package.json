@@ -4,15 +4,20 @@
   "type": "module",
   "description": "",
   "main": "index.js",
+  "engines": {
+    "node": ">=22.18"
+  },
   "scripts": {
     "dev": "tsx watch src/server.ts",
-    "build": "tsc",
+    "build": "prisma generate && tsc",
     "start": "node dist/server.js",
     "typecheck": "tsc --noEmit && tsc -p tsconfig.tools.json",
     "test": "node scripts/run-tests.mjs",
     "test:unit": "tsx --test \"tests/unit/**/*.test.ts\"",
     "db:push": "prisma db push",
-    "db:seed": "prisma db seed"
+    "db:seed": "prisma db seed",
+    "db:migrate": "prisma migrate deploy",
+    "db:baseline": "prisma migrate resolve --applied 0001_init"
   },
   "keywords": [],
   "author": "",
